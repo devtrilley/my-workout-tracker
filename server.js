@@ -83,7 +83,20 @@ app.post("/workouts", (req, res) => {
 });
 
 // GETs all the exercises performed in a specific logged workout
-
+app.get('/workouts/:id/exercises', (req, res) => {
+  const { id } = req.params; // Extract workout id from URL as it's a query param
+  // SQL query that grabs all exercsies where the workout_id matches
+  const query = 'SELECT * FROM exercises WHERE workout_id = ?';
+  connection.query(query, [id], (err, results) => {
+    // Error handling
+    if (err) {
+      console.error(`Error fetching exercises: ${err.message}`);
+      res.status(500).send('Error fetching exercises')
+    } else {
+      res.json(results) // Display results as JSON
+    }
+  });
+});
 
 // Starts the server and tells it to listen for requests.
 // We put the link in the string so we can click it when run Node in our terminal
