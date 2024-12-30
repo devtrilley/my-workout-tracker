@@ -5,7 +5,10 @@
 const express = require("express");
 
 // Imports dotenv npm module to store our environmental variables
-const dotenv = require("dotenv").config(); 
+const dotenv = require("dotenv").config();
+
+// Imports MySQL npm module, allowing us to talk to MySQL through backend
+const mysql = require("mysql2");
 
 // Calling express func which starts our server, storing it in app variable
 // app obj is our server. It handles all requests and sends responses
@@ -15,9 +18,28 @@ const app = express();
 // Port is kinda like an address, you're knocking on different doors to different houses
 const PORT = 3000;
 
-// Middleware to automatically parse JSON data into JS.
+// Middleware to automatically parse JSON data into JS. Comes before routes
 // Without middleware, app wouldn't understand incoming data
 app.use(express.json());
+
+// Creates connection to MySQL database, using all the creds listed in .env
+const connection = mysql.createConnection({
+  host: process.env.DB_HOST, //DB = Database
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+});
+
+// Takes our connection we just created an connects it to the MySQL Database
+connection.connect((err) => {
+  // There there's an error, print this erro message, then stop the func
+  if (err) {
+    console.error(`Error connecting to MySQL: ${err.message}`);
+    return;
+  }
+  // If there isn't any error, this success message will run
+  console.log("Success: Connected to MySQL Database!");
+});
 
 // Test route at our root route (/). A route is essentially a door into your app.
 app.get("/", (req, res) => {
@@ -25,10 +47,46 @@ app.get("/", (req, res) => {
   res.send("Hello Worl... Workout Tracker!");
 });
 
+// Workouts endpoint. GETting/Selecting all of the user logged workouts from workouts table
+app.get("/workouts", (req, res) => {
+  const query = "SELECT * FROM workouts"; // Specific SQL query to get all workouts from our table
+  // .query() method execute SQL code using our above query var
+  connection.query(query, (err, results) => {
+    // If there's an error, else, show the results as JSON
+    if (err) {
+      console.error(`Error fetching workouts: ${err.message}`); // Error message
+      // Sends error response and 500 Internal server error response
+      // Internal error since we wouldn't have been able to retrieve data from DB
+      res.status(500).send("Error fetching workouts");
+    } else {
+      res.json(results); // Sends results, our workouts, in JSON format
+    }
+  });
+});
+
+// POSTing/Adding a new workout to the MySQL workouts table
+app.post("/workouts", (req, res) => {
+  const { name, date } = req.body; // Destructures workout name and date completed
+  const query = "INSERT INTO workouts (name, date) VALUES (?, ?)"; // SQL query
+
+  // Runs query in MySQL. In our array, name & date's values will replace the question marks (?) in our query var
+  // Note results and not res. Res is reserved for the result obj from Express-
+  // so since we're inserting, there is no table/record result needed now (only 'metadata' returned by mysql)
+  connection.query(query, [name, date], (err, results) => {
+    if (err) {
+      res.status(500).send(`Error adding workout: ${err.message}`);
+    } else {
+      // Success status and message (POST sends a 201)
+      res.status(201).send(`New workout "${name}" added!`);
+    }
+  });
+});
+
+// GETs all the exercises performed in a specific logged workout
+
+
 // Starts the server and tells it to listen for requests.
 // We put the link in the string so we can click it when run Node in our terminal
 app.listen(PORT, () => {
   console.log(`Server is live biatch! Get to work @ http://localhost:${PORT}`);
 });
-
-console.log(`Database Host: ${process.env.DB_HOST}`);
