@@ -98,14 +98,71 @@ app.get("/workouts/:id/exercises", (req, res) => {
   });
 });
 
-// POST/Add an exercise to a specific workout (TOOK A PAUSE TO ALTER TABLES)
-// app.post("/workout/:id/exercises", (req, res) => {
-//   const { id } = req.params; // Destructure our route parameter "id"
-//   const { name, sets, reps, weight } = req.body; // Destructuring, extracting exercise details
+// GETs our list of exercises from exercises table in DB
+app.get("/exercises", (req, res) => {
+  const query = "SELECT * FROM exercises"; // SQL Query to select all exercises
+  connection.query(query, (err, results) => {
+    if (err) {
+      console.error(`Error gettign exercises list: ${err.message}`);
+      res.status(500).send("Error getting exercises list.");
+    } else {
+      res.json(results);
+    }
+  });
+});
 
-//   // SQL query to insert a new exercise linked to a specific workout
-//   const query = 'INSERT INTO exer'
-// });
+// POST/Adds an exercise to our workout_exercises table in DB
+// User input, so we'll add extra validation to make sure values are passed
+app.post("/workout_exercises", (req, res) => {
+  // Destructing vars from request body
+  const { workout_id, exercise_id } = req.body;
+
+  // SQL query to insert
+  const query =
+    "INSERT INTO workout_exercises (workout_id, exercise_id) VALUES (?, ?)";
+
+  // Runs query
+  connection.query(query, [workout_id, exercise_id], (err, results) => {
+    if (err) {
+      console.error(`Error adding exercise to workout: ${err.message}`);
+      res.status(500).send("Error adding exercise to workout.");
+    } else {
+      // POST gives 201 status. Success message
+      res
+        .status(201)
+        .send(
+          `Exercise with ID ${exercise_id} add to workout with ID ${workout_id}`
+        );
+    }
+  });
+});
+
+// Logs set for an exercise in a workout in the sets table
+// User input, so we'll add extra validation to make sure values are passed
+app.post("/sets", (req, res) => {
+  // Destructures vars we need when defining a set for an exercise
+  const { workout_exercises_id, reps, weight } = req.body;
+
+  // SQL Query to insert set information for a specifc exercise in a specifc workout
+  const query =
+    "INSERT INTO sets (workout_exercises_id, reps, weight) VALUES (?, ?, ?)";
+
+  //
+  connection.query(
+    query,
+    [workout_exercises_id, reps, weight],
+    (err, result) => {
+      if (err) {
+        console.error(`Error adding set to exercise: ${err.message}`);
+        res.status(500).send("Error adding set to exercise");
+      } else {
+        res
+          .status(201)
+          .json(`Added set to workout exercise ID ${workout_exercises_id}`); // When we get info from DB, it's not in JSON so we convert in .query()
+      }
+    }
+  );
+});
 
 // Starts the server and tells it to listen for requests.
 // We put the link in the string so we can click it when run Node in our terminal
