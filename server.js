@@ -22,6 +22,63 @@ const PORT = 3000;
 // Without middleware, app wouldn't understand incoming data
 app.use(express.json());
 
+// Middleware funcs to ensure POST/workouts and POST/sets endpoints have valid data before running any SQL queries
+// This gives user more specifc error feedback and protect our DB from harmful insertions
+// MW will check req.body. If data's invalid, it stops and returns error. If data's valid, use next() to go to route handler
+
+// MW for POST/workouts: Checks if workout_id and exercise_id were provided and if they are numbers
+const validateWorkoutExerciseInput = (req, res, next) => {
+  const { workout_id, exercise_id } = req.body;
+
+  // Checks to see if they exist
+  if (!workout_id) {
+    return res.status(400).send("Missing required field: workout_id.");
+  }
+
+  if (!exercise_id) {
+    return res.status(400).send("Missing required field: exercise_id.");
+  }
+
+  // Checks to see if they're numbers
+  if (typeof workout_id !== "number") {
+    return res.status(400).send("Invalid input: workout_id must be a number.");
+  }
+
+  if (typeof exercise_id !== "number") {
+    return res.status(400).send("Invalid input: exercise_id must be a number.");
+  }
+
+  // Used in Middleware to pass control to the next MW func. Structures MW logic in Express
+  next();
+};
+
+// MW for POST/sets: Checks if workout_exercises_id, reps, and weight are provided and that reps and weight are positive numbers.
+const validateSetInput = (req, res, next) => {
+  const { workout_exercises_id, reps, weight } = req.body;
+
+  // Checks to see if they exist
+  if (!workout_exercises_id) {
+    return res.status(400).send("Missing required field: workout_exercises_id");
+  }
+  if (!reps) {
+    return res.status(400).send("Missing required field: reps");
+  }
+  if (!weight) {
+    return res.status(400).send("Missing required field: weight");
+  }
+
+  // I wan't people to be able to say they attempted a lift (like a 1RM), but failed so they're able to put 0 reps down.
+  // We'll handle htis later though.
+  if (reps < 0) {
+    return res.status(400).send("Reps must be at least 1 or more.");
+  }
+  if (weight < 0) {
+    return res.status(400).send("Weight must be at least 1 lbs or more.");
+  }
+
+  next(); // Moves to the next Middleware
+};
+
 // Creates connection to MySQL database, using all the creds listed in .env
 const connection = mysql.createConnection({
   host: process.env.DB_HOST, //DB = Database
@@ -113,7 +170,8 @@ app.get("/exercises", (req, res) => {
 
 // POST/Adds an exercise to our workout_exercises table in DB
 // User input, so we'll add extra validation to make sure values are passed
-app.post("/workout_exercises", (req, res) => {
+// Added Middleware "validateWorkoutExerciseInput"
+app.post("/workout_exercises", validateWorkoutExerciseInput, (req, res) => {
   // Destructing vars from request body
   const { workout_id, exercise_id } = req.body;
 
@@ -139,7 +197,8 @@ app.post("/workout_exercises", (req, res) => {
 
 // Logs set for an exercise in a workout in the sets table
 // User input, so we'll add extra validation to make sure values are passed
-app.post("/sets", (req, res) => {
+// Added Middleware "validateSetInput"
+app.post("/sets", validateSetInput, (req, res) => {
   // Destructures vars we need when defining a set for an exercise
   const { workout_exercises_id, reps, weight } = req.body;
 
