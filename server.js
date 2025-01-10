@@ -139,11 +139,73 @@ app.post("/workouts", (req, res) => {
   });
 });
 
+// GETS all the exercises AND sets performed for a specific workout
+app.get("/workouts/:id", (req, res) => {
+  const { id } = req.params;
+
+  // SQL query that retrieves detailed information for all exercises and sets within a specific workout:
+  // 1. SELECT clause:
+  //    - we.id AS workout_exercise_id: Retrieves the unique ID linking a workout to an exercise from the workout_exercises table.
+  //    - e.name AS exercise_name: Retrieves the name of the exercise from the exercises table.
+  //    - s.reps: Retrieves the number of reps for each set from the sets table.
+  //    - s.weight: Retrieves the weight used for each set from the sets table.
+  //
+  // 2. FROM workout_exercises we:
+  //    - Specifies the workout_exercises table as the starting point of the query and assigns it the alias 'we'.
+  //
+  // 3. JOIN exercises e ON we.exercise_id = e.id:
+  //    - Joins the exercises table (alias 'e') to the workout_exercises table using the exercise_id from workout_exercises
+  //      and the id from exercises to retrieve exercise details for each entry in workout_exercises.
+  //
+  // 4. LEFT JOIN sets s ON we.id = s.workout_exercises_id:
+  //    - Performs a LEFT JOIN between the workout_exercises table and the sets table using the workout_exercises_id from sets
+  //      and the id from workout_exercises. This ensures that all exercises are included in the results, even if no sets are logged.
+  //
+  // 5. WHERE we.workout_id = ?:
+  //    - Filters the query to only return rows where the workout_id in the workout_exercises table matches the provided parameter (?).
+  //      This ensures the results are specific to the requested workout.
+  const query = `
+    SELECT
+      we.id AS workout_exercise_id,
+      e.name AS exercise_name,
+      s.reps,
+      s.weight
+    FROM workout_exercises we
+    JOIN exercises e ON we.exercise_id = e.id
+    LEFT JOIN sets s ON we.id = s.workout_exercises_id
+    WHERE we.workout_id = ?
+  `;
+
+  connection.query(query, [id], (err, results) => {
+    if (err) {
+      // Display message
+      console.error(`Error fetching workout details: ${err.message}`);
+      // Internal server error
+      res.status(500).send("Error fetching exercise and set details");
+    } else {
+      // 200 for succesful get request then display them
+      res.status(200).json(results);
+    }
+  });
+});
+
 // GETs all the exercises performed in a specific logged workout
+// No sets, EXERCISES ONLY
 app.get("/workouts/:id/exercises", (req, res) => {
   const { id } = req.params; // Extract workout id from URL as it's a query param
-  // SQL query that grabs all exercsies where the workout_id matches
-  const query = "SELECT * FROM exercises WHERE workout_id = ?";
+
+  // SQL query that grabs all columns from the exercises table (e.*)
+  // for exercises associated with a specific workout.
+  // It joins the workout_exercises table (we) to the exercises table (e)
+  // using the exercise_id field in workout_exercises and the id field in exercises.
+  // The WHERE clause ensures only exercises linked to the specified workout_id are returned.
+  const query = `
+    SELECT e.* 
+    FROM workout_exercises we
+    JOIN exercises e ON we.exercise_id = e.id
+    WHERE we.workout_id = ?
+  `;
+
   connection.query(query, [id], (err, results) => {
     // Error handling
     if (err) {
@@ -151,6 +213,32 @@ app.get("/workouts/:id/exercises", (req, res) => {
       res.status(500).send("Error fetching exercises");
     } else {
       res.json(results); // Display results as JSON
+    }
+  });
+});
+
+// PATCHes/Updates only the notes field for the specified workout
+app.patch("/workouts/:id/notes", (req, res) => {
+  const { id } = req.params;
+  // Extracts new notes from the request body (The note the user wrote)
+  const { notes } = req.body;
+
+  // SQL query to update the notes field for the specific workout
+  const query = "UPDATE workouts SET notes = ? WHERE id = ?";
+
+  connection.query(query, [notes, id], (err, results) => {
+    // First branch is if there's an internal server error
+    if (err) {
+      console.error(`Error adding/updating workout notes: ${err.message}`);
+      res.status(500).send("Error adding/updating workout notes.");
+      // If affectedRows (from results obj given by mysql2) is 0, it means no workout with this ID was found
+      // Ex) User only has 30 workouts but wants to add note a 50th workout
+    } else if (results.affectedRows === 0) {
+      // Error handling if workout id doesn't exist (404).
+      res.status(404).send("Workout not found. Doesn't exist.");
+    } else {
+      // Success message
+      res.status(200).send("Workout notes updated successfully");
     }
   });
 });
@@ -221,6 +309,104 @@ app.post("/sets", validateSetInput, (req, res) => {
       }
     }
   );
+});
+
+// Deleting a workout with a specific workout id and the exercises and sets linked to it
+app.delete("/workouts/:id", (req, res) => {
+  const { id } = req.params; // Workout id we want to delete
+
+  // Queries to delete the chosen exercises and workout for a specific workout id.
+  // The logic is to delete the sets connected to exercises connected to a workout, then the workout (all 3 deleted in that order)
+
+  // Delete exercise set info (due to foreign key)
+  const deleteWorkoutExerciseSetsQuery = `DELETE FROM sets WHERE workout_exercises_id IN (SELECT id FROM workout_exercises WHERE workout_id = ?)`;
+  // Deletes exercises from workout_exercises table with matching id
+  const deleteWorkoutExerciseQuery = `DELETE FROM workout_exercises WHERE workout_id = ?`;
+  // Deletes workout for workouts table
+  const deleteWorkoutQuery = `DELETE FROM workouts WHERE id = ?`;
+
+  // Starts running queries by deleting exercises connected to a workout in workout_exercises
+  connection.query(deleteWorkoutExerciseSetsQuery, [id], (err, results) => {
+    if (err) {
+      console.error(
+        `Error deleting sets from exercise linked to workout ${id}: ${err.message}`
+      );
+      res
+        .status(500)
+        .send(`Error deleting sets from exercise linked to workout ${id}`);
+    } else {
+      connection.query(deleteWorkoutExerciseQuery, [id], (err, results) => {
+        if (err) {
+          console.error(
+            `Error deleting exercises for workout ${id}: ${err.message}`
+          );
+          return res
+            .status(500)
+            .send("Error deleting exercises for workout ${id}");
+        } else {
+          // If there's no error, then run query to delete workout itself
+          connection.query(deleteWorkoutQuery, [id], (err, results) => {
+            if (err) {
+              console.error(`Error deleting workout ${id}: ${err.message}`);
+              return res.status(500).send(`Error deleting workout ${id}.`);
+            }
+
+            // If there isn't an error, but no records are deleted, it means that workout id doesn't exist, returning a 404
+            if (results.affectedRows === 0) {
+              return res.status(404).send("Workout not found.");
+            }
+
+            // Success message
+            res
+              .status(200)
+              .send(`Successfully deleted workout ${id} and it's exercises!`);
+          });
+        }
+      });
+    }
+  });
+});
+
+// Delete a specific exercise from a workout and linked sets to that exercise in this specific workout
+app.delete("/workout_exercises/:id", (req, res) => {
+  const { id } = req.params;
+
+  // SQL queries
+  // Query to delete sets and reps of an exercise in a specifc workout
+  const deleteSetsQuery = `DELETE FROM sets WHERE workout_exercises_id = ?`;
+  // Query to delete the selected exercise in a specific workout
+  const deleteWorkoutExerciseQuery = `DELETE FROM workout_exercise WHERE id = ?`;
+
+  // Run queries, first deleting sets
+  connection.query(deleteSetsQuery, [id], (err, results) => {
+    if (err) {
+      console.error(
+        `Error deleting sets for workout_exercise ${id}: ${err.message}`
+      );
+      return res.status(500).send(`Error deleting sets for workout ${id}`);
+    }
+
+    // If there's no error, sets are deleted, now run query to delete exercise
+    connection.query(deleteWorkoutExerciseQuery, [id], (err, results) => {
+      if (err) {
+        console.error(
+          `Error deleting exercise for workout_exercise ${id}: ${err.message}`
+        );
+        return res
+          .status(500)
+          .send(`Error deleting exercise for workout_exercise ${id}`);
+      }
+
+      // Exercise linked to this workout id is misssing/doesn't exist
+      if (results.affectedRows === 0) {
+        return res.status(404).send("Workout exercise not found.");
+      }
+
+      res
+        .status(200)
+        .send(`Successfully deleted exercise and sets for workout ${id}`);
+    });
+  });
 });
 
 // Starts the server and tells it to listen for requests.
